@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lynn的花園</title>
+    <!-- 引入 Tailwind CSS (樣式) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Google Fonts (可愛字體) -->
+    <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap" rel="stylesheet">
+    
+    <!-- 設定 Import Map (讓瀏覽器知道去哪裡抓 React 和 Firebase) -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.263.1",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"
+      }
+    }
+    </script>
+    
+    <!-- 引入 Babel (讓瀏覽器看得懂 React 程式碼) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body, button, input, textarea, select {
+            font-family: 'Zen Maru Gothic', sans-serif !important;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-[#f7f9f4]">
+    <div id="root"></div>
+
+    <!-- 主程式開始 -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { 
+            Plus, Search, Edit3, Trash2, Image as ImageIcon, Save, X, FileSpreadsheet, 
+            Check, Leaf, Minus, Download, Link as LinkIcon, ImageOff, RefreshCw, 
+            Palette, AlertTriangle, RotateCcw, ChevronDown, ChevronUp, Wifi, WifiOff 
+        } from 'lucide-react';
+        
+        import { initializeApp } from 'firebase/app';
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+
+        // ==========================================
+        //  Firebase 設定邏輯 (自動判斷環境)
+        // ==========================================
+        let firebaseConfig;
+        
+        // 1. 嘗試從預覽環境讀取設定 (讓您現在可以直接執行)
+        if (typeof __firebase_config !== 'undefined') {
+            try {
+                firebaseConfig = JSON.parse(__firebase_config);
+            } catch (e) {
+                console.warn("預覽環境設定讀取失敗，將使用手動設定");
+            }
+        }
+
+        // 2. 如果沒有預覽設定 (代表您在本地或 GitHub)，請在下方填入您的設定
+        if (!firebaseConfig) {
+            firebaseConfig = {
+                apiKey: "你的API_KEY",
+                authDomain: "你的PROJECT_ID.firebaseapp.com",
+                projectId: "你的PROJECT_ID",
+                storageBucket: "你的PROJECT_ID.firebasestorage.app",
+                messagingSenderId: "你的SENDER_ID",
+                appId: "你的APP_ID"
+            };
+        }
+
+        // 初始化 Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        // 取得 App ID (用於資料庫路徑)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- Constants ---
+        const CATEGORIES = [
+            { id: 'all', name: '🏠 全部' },
+            { id: 'flower', name: '💐 花朵' },
+            { id: 'leaf', name: '🌿 葉材' },
+            { id: 'filler', name: '🌾 配花' },
+            { id: 'fruit', name: '🍒 果實' },
+            { id: 'hydrangea', name: '🏵️ 繡球' },
+            { id: 'vase', name: '🏺 花器' },
+            { id: 'tool', name: '✂️ 工具' },
+            { id: 'other', name: '📦 其他' }
+        ];
+
+        const UNITS = ['朵', '盒', '份', '把', '盆', '支', '束', '個', '箱', '瓶'];
+
+        // --- Helper Functions ---
+        const getColorHex = (colorName) => {
+            const name = colorName.toLowerCase();
+            if (name.includes('紅')) return '#ff6b6b';
+            if (name.includes('粉')) return '#ff9aa2';
+            if (name.includes('桃')) return '#ff9aa2';
+            if (name.includes('橘') || name.includes('橙')) return '#ffb7b2';
+            if (name.includes('黃')) return '#ffe66d';
+            if (name.includes('金')) return '#ffd700';
+            if (name.includes('綠')) return '#a3b18a';
+            if (name.includes('藍')) return '#a2d2ff';
+            if (name.includes('青')) return '#48dbfb';
+            if (name.includes('紫')) return '#cdb4db';
+            if (name.includes('白')) return '#ffffff';
+            if (name.includes('米')) return '#fefae0';
+            if (name.includes('黑')) return '#2d3436';
+            if (name.includes('灰')) return '#b2bec3';
+            if (name.includes('咖') || name.includes('棕') || name.includes('褐')) return '#b08968';
+            return '#e0e7d5';
+        };
+
+        const processImageUrl = (url) => {
+            if (!url) return '';
+            if (url.includes('drive.google.com')) {
+                let fileId = null;
+                const idMatch = url.match(/\/d\/([^/]+)/);
+                if (idMatch && idMatch[1]) fileId = idMatch[1];
+                if (!fileId) {
+                    const idParamMatch = url.match(/id=([^&]+)/);
+                    if (idParamMatch && idParamMatch[1]) fileId = idParamMatch[1];
+                }
+                if (fileId) return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
+            }
+            if (url.includes('dropbox.com') && url.includes('dl=0')) {
+                return url.replace('dl=0', 'raw=1');
+            }
+            return url;
+        };
+
+        // --- Smart Image Component ---
+        const SmartImage = ({ src, alt, className }) => {
+            const [error, setError] = useState(false);
+            const [loading, setLoading] = useState(true);
+            const displayUrl = processImageUrl(src);
+            const timerRef = useRef(null);
+
+            useEffect(() => { 
+                setError(false); 
+                setLoading(true);
+                if (timerRef.current) clearTimeout(timerRef.current);
+                timerRef.current = setTimeout(() => setLoading(false), 3000);
+                return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+            }, [src]);
+
+            if (!src) {
+                return (
+                    <div className={`flex flex-col items-center justify-center bg-[#f0f4ec] text-[#cbd5c0] ${className}`}>
+                        <ImageIcon size={24} />
+                    </div>
+                );
+            }
+
+            if (error) {
+                return (
+                    <div className={`flex flex-col items-center justify-center bg-[#fff0f0] text-[#ff9aa2] ${className} p-2 text-center`}>
+                        <ImageOff size={24} />
+                        <span className="text-[10px] mt-1 font-bold">無法讀取</span>
+                    </div>
+                );
+            }
+
+            return (
+                <div className={`relative ${className}`}>
+                    {loading && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-[#f0f4ec] text-[#8ba395] z-10">
+                            <RefreshCw size={16} className="animate-spin" />
+                        </div>
+                    )}
+                    <img 
+                        src={displayUrl} 
+                        alt={alt} 
+                        className={`w-full h-full object-cover transition-opacity duration-500 ${loading ? 'opacity-0' : 'opacity-100'}`}
+                        onError={() => { setError(true); setLoading(false); }}
+                        onLoad={() => { setLoading(false); }}
+                        referrerPolicy="no-referrer"
+                    />
+                </div>
+            );
+        };
+
+        // --- Main App Component ---
+        function FloristLynnStableApp() {
+            const [user, setUser] = useState(null);
+            const storeId = 'Lynn的花園'; 
+
+            const [items, setItems] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [connectionStatus, setConnectionStatus] = useState('connecting');
+            const [filterCategory, setFilterCategory] = useState('all');
+            const [searchTerm, setSearchTerm] = useState('');
+            
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+            const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+            const [itemToDelete, setItemToDelete] = useState(null);
+            const [exportStatus, setExportStatus] = useState('idle');
+            const [isSaving, setIsSaving] = useState(false);
+            
+            const [expandedNotes, setExpandedNotes] = useState({});
+            const [editingItem, setEditingItem] = useState(null);
+            
+            const [formData, setFormData] = useState({
+                name: '', category: 'flower', quantity: 0, unit: '朵', imageUrl: '', notes: '', colors: [] 
+            });
+
+            const [tempColor, setTempColor] = useState('');
+            const [tempQty, setTempQty] = useState(1);
+            const [editingColorIndex, setEditingColorIndex] = useState(null);
+
+            // Auth Init
+            useEffect(() => {
+                const initAuth = async () => {
+                    try {
+                        // 優先使用環境 Token (解決 403 錯誤)
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Auth Error:", error);
+                        setConnectionStatus('error');
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, (currentUser) => setUser(currentUser));
+                return () => unsubscribe();
+            }, []);
+
+            // Data Listener
+            useEffect(() => {
+                if (!user) return;
+                setLoading(true);
+                setConnectionStatus('connecting');
+                
+                const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'florist_inventory_lynn_final');
+                
+                const unsubscribeData = onSnapshot(collectionRef, (snapshot) => {
+                    const allData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    const storeData = allData.filter(item => item.storeId === storeId);
+                    storeData.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+                    setItems(storeData);
+                    setLoading(false);
+                    setConnectionStatus('connected');
+                }, (error) => {
+                    console.error("Data Error:", error);
+                    setLoading(false);
+                    setConnectionStatus('error');
+                });
+                return () => unsubscribeData();
+            }, [user]);
+
+            // Handlers
+            const toggleNote = (e, id) => {
+                e.stopPropagation();
+                setExpandedNotes(prev => ({ ...prev, [id]: !prev[id] }));
+            };
+
+            const triggerExport = () => {
+                if (items.length === 0) { alert("⚠️ 庫存是空的"); return; }
+                setExportStatus('idle'); setIsExportModalOpen(true);
+            };
+
+            const confirmExport = () => {
+                setExportStatus('processing');
+                setTimeout(() => {
+                    try {
+                        const headers = ["名稱", "分類", "總數量", "顏色明細", "單位", "備註", "最後更新時間", "圖片連結"];
+                        const rows = items.map(item => {
+                            const categoryName = CATEGORIES.find(c => c.id === item.category)?.name || item.category;
+                            const dateStr = item.updatedAt ? new Date(item.updatedAt.seconds * 1000).toLocaleDateString() : '';
+                            const colorDetails = item.colors && item.colors.length > 0 ? item.colors.map(c => `${c.color}:${c.qty}`).join('; ') : '無分色';
+                            const clean = (str) => `"${(str || '').toString().replace(/"/g, '""')}"`;
+                            return [clean(item.name), clean(categoryName), item.quantity, clean(colorDetails), item.unit, clean(item.notes), dateStr, clean(item.imageUrl)].join(",");
+                        });
+                        const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
+                        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement("a");
+                        link.href = url;
+                        link.download = `${storeId}_庫存表_${new Date().toISOString().slice(0,10)}.csv`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(url);
+                        setExportStatus('success');
+                    } catch (error) {
+                        alert("匯出失敗"); setIsExportModalOpen(false);
+                    }
+                }, 800);
+            };
+
+            const addOrUpdateColor = () => {
+                if (!tempColor.trim()) return;
+                let newColors = [...formData.colors];
+                if (editingColorIndex !== null) {
+                    newColors[editingColorIndex] = { color: tempColor.trim(), qty: tempQty };
+                    setEditingColorIndex(null);
+                } else {
+                    newColors.push({ color: tempColor.trim(), qty: tempQty });
+                }
+                const newTotal = newColors.reduce((sum, c) => sum + c.qty, 0);
+                setFormData({ ...formData, colors: newColors, quantity: newTotal });
+                setTempColor(''); setTempQty(1);
+            };
+
+            const editColor = (index) => {
+                const colorToEdit = formData.colors[index];
+                setTempColor(colorToEdit.color); setTempQty(colorToEdit.qty); setEditingColorIndex(index);
+            };
+
+            const removeColor = (index) => {
+                const newColors = formData.colors.filter((_, i) => i !== index);
+                const newTotal = newColors.reduce((sum, c) => sum + c.qty, 0);
+                setFormData({ ...formData, colors: newColors, quantity: newTotal });
+                if (editingColorIndex === index) { setEditingColorIndex(null); setTempColor(''); setTempQty(1); }
+            };
+
+            const cancelEditColor = () => { setEditingColorIndex(null); setTempColor(''); setTempQty(1); };
+
+            const handleOpenModal = (item = null) => {
+                if (item) {
+                    setEditingItem(item);
+                    setFormData({ name: item.name, category: item.category, quantity: item.quantity, unit: item.unit, imageUrl: item.imageUrl || '', notes: item.notes || '', colors: item.colors || [] });
+                } else {
+                    setEditingItem(null);
+                    setFormData({ name: '', category: filterCategory === 'all' ? 'flower' : filterCategory, quantity: 0, unit: '朵', imageUrl: '', notes: '', colors: [] });
+                }
+                setTempColor(''); setTempQty(1); setEditingColorIndex(null); setIsModalOpen(true);
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!user) return;
+                setIsSaving(true);
+                const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'florist_inventory_lynn_final');
+                let finalQty = formData.quantity;
+                if (formData.colors.length > 0) finalQty = formData.colors.reduce((sum, c) => sum + c.qty, 0);
+                if (formData.colors.length === 0 && formData.quantity > 0) finalQty = formData.quantity;
+                const dataToSave = { ...formData, quantity: finalQty };
+                try {
+                    if (editingItem) {
+                        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'florist_inventory_lynn_final', editingItem.id);
+                        await updateDoc(docRef, { ...dataToSave, updatedAt: serverTimestamp() });
+                    } else {
+                        await addDoc(collectionRef, { ...dataToSave, storeId: storeId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+                    }
+                    setIsModalOpen(false);
+                } catch (err) { alert("儲存失敗"); } finally { setIsSaving(false); }
+            };
+
+            const triggerDelete = (e, item) => { e.stopPropagation(); setItemToDelete(item); setIsDeleteModalOpen(true); };
+            const confirmDelete = async () => {
+                if (!user || !itemToDelete) return;
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'florist_inventory_lynn_final', itemToDelete.id));
+                    setIsDeleteModalOpen(false); setItemToDelete(null);
+                } catch (err) { console.error(err); }
+            };
+
+            const filteredItems = items.filter(item => {
+                const matchCategory = filterCategory === 'all' || item.category === filterCategory;
+                const matchSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || (item.notes && item.notes.toLowerCase().includes(searchTerm.toLowerCase()));
+                return matchCategory && matchSearch;
+            });
+
+            // UI Render
+            return (
+                <div className="min-h-screen pb-24 relative selection:bg-[#ffcdc9]">
+                    <div className="sticky top-0 z-30 bg-[#f7f9f4]/95 backdrop-blur-md border-b border-[#e0e7d5] shadow-sm">
+                        <div className="max-w-3xl mx-auto px-4 py-3">
+                            <div className="flex justify-between items-center mb-3">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-10 h-10 bg-[#5c8065] rounded-full flex items-center justify-center text-white shrink-0 shadow-sm relative">
+                                        <Leaf size={20} />
+                                        <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-[#f7f9f4] flex items-center justify-center ${connectionStatus === 'connected' ? 'bg-green-500' : connectionStatus === 'error' ? 'bg-red-500' : 'bg-orange-400'}`}>
+                                            {connectionStatus === 'error' ? <WifiOff size={8} color="white"/> : <Wifi size={8} color="white"/>}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h1 className="text-xl font-bold text-[#2d4a3e] tracking-tight">{storeId}</h1>
+                                        <span className="text-[10px] text-[#8cb369] font-medium">{connectionStatus === 'connected' ? '雲端同步中' : connectionStatus === 'error' ? '離線' : '連線中...'}</span>
+                                    </div>
+                                </div>
+                                <button onClick={triggerExport} className="flex items-center gap-1 px-3 py-1.5 bg-white border border-[#8cb369] text-[#5c8065] text-xs font-bold rounded-xl active:bg-[#f0f4ec] transition-colors shadow-sm">
+                                    <FileSpreadsheet size={14} /> 匯出
+                                </button>
+                            </div>
+                            <div className="relative mb-3">
+                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#a5c2ad]" size={16} />
+                                <input type="text" placeholder="搜尋花材、顏色..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-[#e0e7d5] bg-white focus:border-[#8cb369] focus:outline-none"/>
+                            </div>
+                            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                                {CATEGORIES.map(cat => (
+                                    <button key={cat.id} onClick={() => setFilterCategory(cat.id)} className={`px-3 py-1.5 rounded-lg whitespace-nowrap text-xs font-bold border transition-colors shrink-0 ${filterCategory === cat.id ? 'bg-[#5c8065] text-white border-[#5c8065]' : 'bg-white text-[#8ba395] border-[#e0e7d5]'}`}>{cat.name}</button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="max-w-3xl mx-auto p-4">
+                        {loading ? <div className="text-center py-10 text-sm text-[#8ba395]">整理花園中...</div> : (
+                            <div className="grid grid-cols-2 gap-4">
+                                {filteredItems.map(item => (
+                                    <div key={item.id} onClick={() => handleOpenModal(item)} className="bg-white rounded-[24px] border border-[#eff2eb] shadow-sm flex flex-col relative overflow-hidden group cursor-pointer hover:shadow-md transition-shadow">
+                                        <div className="w-full aspect-square bg-[#f2f7f4] relative overflow-hidden border-b border-[#f0f4ec]">
+                                            <SmartImage src={item.imageUrl} alt={item.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                                            <div className="absolute top-2 left-2 px-2 py-1 bg-white/90 backdrop-blur-sm rounded-lg text-[10px] font-bold text-[#5c8065] shadow-sm border border-white">{CATEGORIES.find(c => c.id === item.category)?.name.split(' ')[0]}</div>
+                                        </div>
+                                        <div className="p-3 flex flex-col gap-1 flex-1">
+                                            <h3 className="font-bold text-base text-[#2d4a3e] truncate">{item.name}</h3>
+                                            <div className="flex flex-wrap gap-1.5 mt-1 mb-1">
+                                                {item.colors && item.colors.length > 0 ? (
+                                                    item.colors.map((c, idx) => {
+                                                        const dotColor = getColorHex(c.color);
+                                                        const isWhite = dotColor === '#ffffff';
+                                                        return (
+                                                            <span key={idx} className="flex items-center text-[10px] bg-[#f7f9f4] pr-1.5 pl-1 py-0.5 rounded-full border border-[#e0e7d5]">
+                                                                <span className={`w-2.5 h-2.5 rounded-full mr-1 ${isWhite ? 'border border-gray-200' : ''}`} style={{ backgroundColor: dotColor }}></span>
+                                                                <span className="text-[#5c8065] font-bold">{c.qty}</span>
+                                                            </span>
+                                                        );
+                                                    })
+                                                ) : (<span className="text-[10px] text-gray-300">單一規格</span>)}
+                                            </div>
+                                            {item.notes && (
+                                                <div onClick={(e) => toggleNote(e, item.id)} className={`bg-[#f0f4ec] px-2 py-1.5 rounded-xl mt-1 mb-1 cursor-pointer hover:bg-[#e0e7d5] transition-colors relative group/note`} title="點擊展開/收合">
+                                                    <p className={`text-[11px] text-[#5c8065] leading-snug break-words ${expandedNotes[item.id] ? '' : 'line-clamp-1'}`}>{item.notes}</p>
+                                                    <div className="flex justify-center mt-0.5 opacity-40">{expandedNotes[item.id] ? <ChevronUp size={10}/> : <ChevronDown size={10}/>}</div>
+                                                </div>
+                                            )}
+                                            <div className="flex justify-between items-end mt-auto pt-2 border-t border-[#f7f9f4]">
+                                                <div className="flex items-baseline gap-1"><span className="text-2xl font-black text-[#5c8065]">{item.quantity}</span><span className="text-xs text-[#8ba395] font-bold">{item.unit}</span></div>
+                                                <button onClick={(e) => triggerDelete(e, item)} className="p-2 rounded-full bg-[#fff0f0] text-[#ff9aa2] hover:bg-[#ffcdc9] hover:text-[#d65f41] transition-colors"><Trash2 size={16} /></button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        {!loading && filteredItems.length === 0 && <div className="py-16 text-center border-2 border-dashed border-[#e0e7d5] rounded-3xl mt-4"><p className="text-sm text-[#8ba395]">花園還空空的</p><p className="text-xs text-[#cbd5c0] mt-1">點擊右下角 + 按鈕種植</p></div>}
+                    </div>
+
+                    <button onClick={() => handleOpenModal()} className="fixed bottom-6 right-6 w-14 h-14 bg-[#ff9aa2] text-white rounded-full shadow-lg flex items-center justify-center active:scale-95 z-40 border-4 border-white"><Plus size={28} /></button>
+
+                    {isExportModalOpen && (
+                        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl animate-fade-in-up text-center">
+                                {exportStatus === 'success' ? (
+                                    <>
+                                        <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4"><Check size={24} /></div>
+                                        <h3 className="text-lg font-bold text-[#2d4a3e] mb-2">匯出成功！</h3>
+                                        <button onClick={() => setIsExportModalOpen(false)} className="w-full py-2.5 bg-[#2d4a3e] text-white rounded-xl font-bold text-sm">關閉</button>
+                                    </>
+                                ) : exportStatus === 'processing' ? (
+                                    <>
+                                        <div className="w-12 h-12 border-4 border-[#e0e7d5] border-t-[#5c8065] rounded-full animate-spin mx-auto mb-4"></div>
+                                        <h3 className="text-lg font-bold text-[#2d4a3e] mb-2">處理中...</h3>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="w-12 h-12 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-4"><Download size={24} /></div>
+                                        <h3 className="text-lg font-bold text-[#2d4a3e] mb-2">匯出 Excel？</h3>
+                                        <div className="flex gap-3 mt-6">
+                                            <button onClick={() => setIsExportModalOpen(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm">取消</button>
+                                            <button onClick={confirmExport} className="flex-1 py-2.5 bg-[#5c8065] text-white rounded-xl font-bold text-sm shadow-md">確認</button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {isDeleteModalOpen && itemToDelete && (
+                        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl animate-fade-in-up text-center border-4 border-white">
+                                <div className="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><AlertTriangle size={24} /></div>
+                                <h3 className="text-lg font-bold text-[#2d4a3e] mb-2">確定刪除？</h3>
+                                <p className="text-sm text-[#8ba395] mb-6">刪除 <span className="font-bold text-[#d65f41]">{itemToDelete.name}</span> 後無法復原。</p>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setIsDeleteModalOpen(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm">保留</button>
+                                    <button onClick={confirmDelete} className="flex-1 py-2.5 bg-[#ff6b6b] text-white rounded-xl font-bold text-sm shadow-md">刪除</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-[#2d4a3e]/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-[#fcfdfa] w-full max-w-sm rounded-3xl shadow-xl overflow-hidden animate-fade-in-up flex flex-col max-h-[85vh] border-4 border-white">
+                                <div className="px-5 py-3 border-b border-[#f0f4ec] flex justify-between items-center bg-white">
+                                    <h3 className="font-bold text-lg text-[#2d4a3e]">{editingItem ? '編輯花材' : '新增花材'}</h3>
+                                    <button onClick={() => setIsModalOpen(false)} className="p-1 rounded-full bg-[#f0f4ec] text-[#8ba395]"><X size={20} /></button>
+                                </div>
+                                <div className="overflow-y-auto p-5 scrollbar-hide">
+                                    <form id="flower-form" onSubmit={handleSubmit} className="space-y-4">
+                                        <div className="bg-[#f0f4ec] p-3 rounded-2xl border border-[#e0e7d5]">
+                                            <label className="text-xs font-bold text-[#8cb369] mb-2 flex items-center gap-1"><LinkIcon size={12}/> 照片連結 (Google Drive 可)</label>
+                                            <input type="text" value={formData.imageUrl} onChange={e => setFormData({...formData, imageUrl: e.target.value})} className="w-full p-2 rounded-xl bg-white border border-[#e0e7d5] outline-none text-xs text-[#5c8065]" placeholder="貼上網址..." />
+                                            {formData.imageUrl && <div className="mt-2 w-full h-32 rounded-lg overflow-hidden bg-white border border-[#e0e7d5]"><SmartImage src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" /></div>}
+                                        </div>
+                                        <div><label className="text-xs font-bold text-[#8cb369] mb-1 block">名稱</label><input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-2.5 rounded-xl bg-white border border-[#e0e7d5] focus:border-[#8cb369] outline-none text-base font-bold text-[#2d4a3e]" placeholder="例如：玫瑰" /></div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div><label className="text-xs font-bold text-[#8cb369] mb-1 block">分類</label><select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full p-2.5 rounded-xl bg-white border border-[#e0e7d5] outline-none text-sm text-[#4a5d50]">{CATEGORIES.filter(c => c.id !== 'all').map(c => ( <option key={c.id} value={c.id}>{c.name}</option> ))}</select></div>
+                                            <div><label className="text-xs font-bold text-[#8cb369] mb-1 block">單位</label><select value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})} className="w-full p-2.5 rounded-xl bg-white border border-[#e0e7d5] outline-none text-sm text-[#4a5d50]">{UNITS.map(u => ( <option key={u} value={u}>{u}</option> ))}</select></div>
+                                        </div>
+                                        <div className="bg-[#f7f9f4] p-3 rounded-2xl border border-[#e0e7d5]">
+                                            <label className="text-xs font-bold text-[#8cb369] mb-2 flex items-center gap-1"><Palette size={12}/> {editingColorIndex !== null ? '編輯顏色中...' : '顏色與數量'}</label>
+                                            <div className="flex gap-2 mb-3">
+                                                <input type="text" placeholder="顏色" value={tempColor} onChange={(e) => setTempColor(e.target.value)} className="w-1/2 p-2 rounded-xl bg-white border border-[#e0e7d5] outline-none text-sm text-[#2d4a3e] placeholder-gray-300"/>
+                                                <input type="number" placeholder="量" value={tempQty} onChange={(e) => setTempQty(parseInt(e.target.value) || 0)} className="flex-1 min-w-0 p-2 text-center rounded-xl bg-white border border-[#e0e7d5] outline-none text-sm font-bold text-[#2d4a3e]"/>
+                                                {editingColorIndex !== null ? (
+                                                    <>
+                                                        <button type="button" onClick={cancelEditColor} className="p-2 bg-gray-200 text-gray-500 rounded-xl hover:bg-gray-300"><RotateCcw size={18} /></button>
+                                                        <button type="button" onClick={addOrUpdateColor} className="p-2 bg-[#5c8065] text-white rounded-xl shadow-sm hover:bg-[#2d4a3e]"><Check size={18} /></button>
+                                                    </>
+                                                ) : (
+                                                    <button type="button" onClick={addOrUpdateColor} className="p-2 bg-[#8cb369] text-white rounded-xl shadow-sm hover:bg-[#5c8065]"><Plus size={18} /></button>
+                                                )}
+                                            </div>
+                                            <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                                {formData.colors && formData.colors.length > 0 ? (
+                                                    formData.colors.map((c, idx) => {
+                                                        const dotColor = getColorHex(c.color); const isWhite = dotColor === '#ffffff';
+                                                        return (
+                                                            <div key={idx} className={`flex justify-between items-center bg-white p-2 rounded-xl border ${editingColorIndex === idx ? 'border-[#8cb369] bg-[#f0f4ec]' : 'border-[#e0e7d5]'}`}>
+                                                                <div className="flex items-center gap-2 overflow-hidden"><span className={`w-3 h-3 rounded-full shrink-0 ${isWhite ? 'border border-gray-200' : ''}`} style={{ backgroundColor: dotColor }}></span><span className="text-sm font-bold text-[#4a5d50] truncate max-w-[80px]">{c.color}</span></div>
+                                                                <div className="flex items-center gap-2 shrink-0"><span className="text-sm font-bold text-[#5c8065] mr-1">{c.qty}</span><button type="button" onClick={() => editColor(idx)} className="text-gray-400 hover:text-[#5c8065]"><Edit3 size={14} /></button><button type="button" onClick={() => removeColor(idx)} className="text-gray-400 hover:text-red-400"><X size={14} /></button></div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                ) : (<div className="text-center text-xs text-gray-400 py-2 border border-dashed border-gray-300 rounded-xl">無顏色</div>)}
+                                            </div>
+                                            <div className="mt-3 flex justify-between items-center px-2"><span className="text-xs font-bold text-[#8ba395]">總計</span><span className="text-xl font-black text-[#5c8065]">{formData.quantity}</span></div>
+                                            {formData.colors.length === 0 && (
+                                                <div className="mt-2 pt-2 border-t border-dashed border-[#e0e7d5] flex items-center justify-between gap-2">
+                                                    <span className="text-xs text-gray-400">直接輸入：</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <button type="button" onClick={() => setFormData({...formData, quantity: Math.max(0, formData.quantity - 1)})} className="w-8 h-8 rounded-lg bg-white border text-[#2d4a3e] flex items-center justify-center">-</button>
+                                                        <input type="number" value={formData.quantity} onChange={(e) => setFormData({...formData, quantity: parseInt(e.target.value) || 0})} className="w-16 text-center bg-transparent font-bold text-[#2d4a3e]"/>
+                                                        <button type="button" onClick={() => setFormData({...formData, quantity: formData.quantity + 1})} className="w-8 h-8 rounded-lg bg-white border text-[#2d4a3e] flex items-center justify-center">+</button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div><label className="text-xs font-bold text-[#8cb369] mb-1 block">備註</label><input type="text" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} className="w-full p-2.5 rounded-xl bg-white border border-[#e0e7d5] outline-none text-sm" placeholder="選填..." /></div>
+                                    </form>
+                                </div>
+                                <div className="p-4 border-t border-[#f0f4ec] bg-[#fcfdfa] flex gap-3">
+                                    <button onClick={() => setIsModalOpen(false)} className="flex-1 py-3 bg-white border border-[#e0e7d5] text-[#8ba395] rounded-xl font-bold text-sm">取消</button>
+                                    <button onClick={handleSubmit} disabled={isSaving} className="flex-[2] py-3 bg-[#ff9aa2] text-white rounded-xl font-bold text-sm shadow-sm active:bg-[#ff808b] flex justify-center items-center">
+                                        {isSaving ? <RefreshCw className="animate-spin mr-2" size={16}/> : null} {editingItem ? '儲存' : '新增'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<FloristLynnStableApp />);
+    </script>
+</body>
+</html>
