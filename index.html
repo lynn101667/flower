@@ -2,14 +2,31 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Lynn的花園</title>
-    <!-- 引入 Tailwind CSS (樣式) -->
+    
+    <!-- ========================================== -->
+    <!-- 👇 App Icon 設定 (請確保 image.png 已上傳) 👇 -->
+    <!-- ========================================== -->
+    <!-- 網頁標籤小圖示 -->
+    <link rel="icon" type="image/png" href="image.png">
+    
+    <!-- iOS 桌面圖示 (iPhone/iPad) -->
+    <link rel="apple-touch-icon" href="image.png">
+    
+    <!-- Android 桌面圖示 -->
+    <link rel="manifest" href='data:application/json;charset=utf-8,{"name":"Lynn的花園","short_name":"Lynn花園","start_url":".","display":"standalone","background_color":"#f7f9f4","theme_color":"#f7f9f4","icons":[{"src":"image.png","sizes":"192x192","type":"image/png"},{"src":"image.png","sizes":"512x512","type":"image/png"}]}'>
+
+    <!-- iOS 全螢幕設定 -->
+    <meta name="apple-mobile-web-app-title" content="Lynn花園">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#f7f9f4">
+    <!-- ========================================== -->
+
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 Google Fonts (可愛字體) -->
     <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap" rel="stylesheet">
     
-    <!-- 設定 Import Map (讓瀏覽器知道去哪裡抓 React 和 Firebase) -->
     <script type="importmap">
     {
       "imports": {
@@ -23,26 +40,24 @@
     }
     </script>
     
-    <!-- 引入 Babel (讓瀏覽器看得懂 React 程式碼) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
         body, button, input, textarea, select {
             font-family: 'Zen Maru Gothic', sans-serif !important;
         }
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* 防止手機點擊放大 */
+        button, input, select, textarea {
+            touch-action: manipulation;
         }
     </style>
 </head>
-<body class="bg-[#f7f9f4]">
+<body class="bg-[#f7f9f4] overscroll-none">
     <div id="root"></div>
 
-    <!-- 主程式開始 -->
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import ReactDOM from 'react-dom/client';
@@ -52,14 +67,11 @@
             Palette, AlertTriangle, RotateCcw, ChevronDown, ChevronUp, Wifi, WifiOff 
         } from 'lucide-react';
         
-        // 引入必要的 Auth 函式
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInAnonymously, onAuthStateChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
         import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 
-        // ==========================================
-        //  Lynn 的專屬 Firebase 設定
-        // ==========================================
+        // Lynn 的 Firebase 設定
         const firebaseConfig = {
             apiKey: "AIzaSyA9v-WkbIkI0F5LuXa5sOfZaBtDkNZecg0",
             authDomain: "lynn-garden-app.firebaseapp.com",
@@ -70,15 +82,12 @@
             measurementId: "G-CQ00BN267J"
         };
 
-        // 初始化 Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        
-        // 你的 App ID (用於資料庫路徑)
         const appId = "lynn-garden-app";
+        const storeId = 'Lynn的花園'; 
 
-        // --- Constants ---
         const CATEGORIES = [
             { id: 'all', name: '🏠 全部' },
             { id: 'flower', name: '💐 花朵' },
@@ -93,7 +102,6 @@
 
         const UNITS = ['朵', '盒', '份', '把', '盆', '支', '束', '個', '箱', '瓶'];
 
-        // --- Helper Functions ---
         const getColorHex = (colorName) => {
             const name = colorName.toLowerCase();
             if (name.includes('紅')) return '#ff6b6b';
@@ -132,7 +140,6 @@
             return url;
         };
 
-        // --- Smart Image Component ---
         const SmartImage = ({ src, alt, className }) => {
             const [error, setError] = useState(false);
             const [loading, setLoading] = useState(true);
@@ -147,47 +154,19 @@
                 return () => { if (timerRef.current) clearTimeout(timerRef.current); };
             }, [src]);
 
-            if (!src) {
-                return (
-                    <div className={`flex flex-col items-center justify-center bg-[#f0f4ec] text-[#cbd5c0] ${className}`}>
-                        <ImageIcon size={24} />
-                    </div>
-                );
-            }
-
-            if (error) {
-                return (
-                    <div className={`flex flex-col items-center justify-center bg-[#fff0f0] text-[#ff9aa2] ${className} p-2 text-center`}>
-                        <ImageOff size={24} />
-                        <span className="text-[10px] mt-1 font-bold">無法讀取</span>
-                    </div>
-                );
-            }
+            if (!src) return <div className={`flex flex-col items-center justify-center bg-[#f0f4ec] text-[#cbd5c0] ${className}`}><ImageIcon size={24} /></div>;
+            if (error) return <div className={`flex flex-col items-center justify-center bg-[#fff0f0] text-[#ff9aa2] ${className} p-2 text-center`}><ImageOff size={24} /><span className="text-[10px] mt-1 font-bold">無法讀取</span></div>;
 
             return (
                 <div className={`relative ${className}`}>
-                    {loading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-[#f0f4ec] text-[#8ba395] z-10">
-                            <RefreshCw size={16} className="animate-spin" />
-                        </div>
-                    )}
-                    <img 
-                        src={displayUrl} 
-                        alt={alt} 
-                        className={`w-full h-full object-cover transition-opacity duration-500 ${loading ? 'opacity-0' : 'opacity-100'}`}
-                        onError={() => { setError(true); setLoading(false); }}
-                        onLoad={() => { setLoading(false); }}
-                        referrerPolicy="no-referrer"
-                    />
+                    {loading && <div className="absolute inset-0 flex items-center justify-center bg-[#f0f4ec] text-[#8ba395] z-10"><RefreshCw size={16} className="animate-spin" /></div>}
+                    <img src={displayUrl} alt={alt} className={`w-full h-full object-cover transition-opacity duration-500 ${loading ? 'opacity-0' : 'opacity-100'}`} onError={() => { setError(true); setLoading(false); }} onLoad={() => setLoading(false)} referrerPolicy="no-referrer" />
                 </div>
             );
         };
 
-        // --- Main App Component ---
         function FloristLynnStableApp() {
             const [user, setUser] = useState(null);
-            const storeId = 'Lynn的花園'; 
-
             const [items, setItems] = useState([]);
             const [loading, setLoading] = useState(true);
             const [connectionStatus, setConnectionStatus] = useState('connecting');
@@ -204,21 +183,17 @@
             const [expandedNotes, setExpandedNotes] = useState({});
             const [editingItem, setEditingItem] = useState(null);
             
-            const [formData, setFormData] = useState({
-                name: '', category: 'flower', quantity: 0, unit: '朵', imageUrl: '', notes: '', colors: [] 
-            });
-
+            const [formData, setFormData] = useState({ name: '', category: 'flower', quantity: 0, unit: '朵', imageUrl: '', notes: '', colors: [] });
             const [tempColor, setTempColor] = useState('');
             const [tempQty, setTempQty] = useState(1);
             const [editingColorIndex, setEditingColorIndex] = useState(null);
 
-            // Timeout check for connection
             useEffect(() => {
                 let timeoutId;
                 if (connectionStatus === 'connecting') {
                     timeoutId = setTimeout(() => {
                         if (connectionStatus === 'connecting') {
-                            alert("⚠️ 連線似乎卡住了 (超過 10 秒)。\n\n這通常是因為 Firebase 資料庫尚未建立。\n\n請務必確認：\n1. 進入 Firebase Console -> Firestore Database\n2. 看到「Create database」按鈕了嗎？請點擊它！\n3. 選擇「Start in Test Mode」並啟用。\n\n如果已經建立，請檢查網路連線。");
+                            alert("⚠️ 連線逾時。\n請確認 Firebase 資料庫已啟用。\n(Build -> Firestore Database -> Create database)");
                             setConnectionStatus('error');
                         }
                     }, 10000);
@@ -226,7 +201,6 @@
                 return () => clearTimeout(timeoutId);
             }, [connectionStatus]);
 
-            // Auth Init
             useEffect(() => {
                 const initAuth = async () => {
                     try {
@@ -235,34 +209,26 @@
                     } catch (error) {
                         console.error("Auth Error:", error);
                         setConnectionStatus('error');
-                        if (error.code === 'auth/operation-not-allowed') {
-                            alert("⚠️ 請至 Firebase Console 開啟「匿名登入 (Anonymous)」功能。");
-                        }
+                        if (error.code === 'auth/operation-not-allowed') alert("⚠️ 請至 Firebase Console 開啟「匿名登入 (Anonymous)」功能。");
                     }
                 };
                 initAuth();
-                
                 const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
                     setUser(currentUser);
-                    if (currentUser) {
-                        setConnectionStatus('connected');
-                    }
+                    if (currentUser) setConnectionStatus('connected');
                 });
                 return () => unsubscribe();
             }, []);
 
-            // Data Listener
             useEffect(() => {
                 if (!user) return;
                 setLoading(true);
                 setConnectionStatus('connecting');
                 
-                // 改用簡單的根目錄路徑，減少權限問題
                 const collectionRef = collection(db, 'lynn_garden_data');
                 
                 const unsubscribeData = onSnapshot(collectionRef, (snapshot) => {
                     const allData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    // 為了安全，我們還是會過濾 storeId，雖然現在只有一個 store
                     const storeData = allData.filter(item => item.storeId === storeId);
                     storeData.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
                     setItems(storeData);
@@ -272,28 +238,17 @@
                     console.error("Data Error:", error);
                     setLoading(false);
                     setConnectionStatus('error');
-                    
-                    // --- 錯誤診斷與提示 ---
                     if (error.code === 'permission-denied') {
-                        alert("⚠️ 權限不足 (Permission Denied)\n\n請到 Firebase Console -> Firestore Database -> Rules (規則)\n\n將規則改成：\nallow read, write: if true;");
-                    } else if (error.message.includes("Cloud Firestore API") || error.code === 'unavailable') {
-                        alert("⚠️ 資料庫尚未啟用\n\n請到 Firebase Console -> Firestore Database\n點擊「Create database」，並選擇「Start in Test mode (測試模式)」");
+                        alert("⚠️ 權限不足。\n請到 Firebase Console -> Firestore Database -> Rules\n將規則改成 allow read, write: if true;");
+                    } else if (error.message.includes("Cloud Firestore API")) {
+                        alert("⚠️ 資料庫未啟用。\n請到 Firebase Console 建立資料庫。");
                     }
                 });
                 return () => unsubscribeData();
             }, [user]);
 
-            // Handlers
-            const toggleNote = (e, id) => {
-                e.stopPropagation();
-                setExpandedNotes(prev => ({ ...prev, [id]: !prev[id] }));
-            };
-
-            const triggerExport = () => {
-                if (items.length === 0) { alert("⚠️ 庫存是空的"); return; }
-                setExportStatus('idle'); setIsExportModalOpen(true);
-            };
-
+            const toggleNote = (e, id) => { e.stopPropagation(); setExpandedNotes(prev => ({ ...prev, [id]: !prev[id] })); };
+            const triggerExport = () => { if (items.length === 0) { alert("⚠️ 庫存是空的"); return; } setExportStatus('idle'); setIsExportModalOpen(true); };
             const confirmExport = () => {
                 setExportStatus('processing');
                 setTimeout(() => {
@@ -309,95 +264,56 @@
                         const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
                         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                         const url = URL.createObjectURL(blob);
-                        const link = document.createElement("a");
-                        link.href = url;
-                        link.download = `${storeId}_庫存表_${new Date().toISOString().slice(0,10)}.csv`;
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        URL.revokeObjectURL(url);
+                        const link = document.createElement("a"); link.href = url; link.download = `${storeId}_庫存表.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
                         setExportStatus('success');
-                    } catch (error) {
-                        alert("匯出失敗"); setIsExportModalOpen(false);
-                    }
+                    } catch (error) { alert("匯出失敗"); setIsExportModalOpen(false); }
                 }, 800);
             };
-
             const addOrUpdateColor = () => {
                 if (!tempColor.trim()) return;
                 let newColors = [...formData.colors];
-                if (editingColorIndex !== null) {
-                    newColors[editingColorIndex] = { color: tempColor.trim(), qty: tempQty };
-                    setEditingColorIndex(null);
-                } else {
-                    newColors.push({ color: tempColor.trim(), qty: tempQty });
-                }
+                if (editingColorIndex !== null) { newColors[editingColorIndex] = { color: tempColor.trim(), qty: tempQty }; setEditingColorIndex(null); } 
+                else { newColors.push({ color: tempColor.trim(), qty: tempQty }); }
                 const newTotal = newColors.reduce((sum, c) => sum + c.qty, 0);
-                setFormData({ ...formData, colors: newColors, quantity: newTotal });
-                setTempColor(''); setTempQty(1);
+                setFormData({ ...formData, colors: newColors, quantity: newTotal }); setTempColor(''); setTempQty(1);
             };
-
-            const editColor = (index) => {
-                const colorToEdit = formData.colors[index];
-                setTempColor(colorToEdit.color); setTempQty(colorToEdit.qty); setEditingColorIndex(index);
-            };
-
+            const editColor = (index) => { const c = formData.colors[index]; setTempColor(c.color); setTempQty(c.qty); setEditingColorIndex(index); };
             const removeColor = (index) => {
                 const newColors = formData.colors.filter((_, i) => i !== index);
                 const newTotal = newColors.reduce((sum, c) => sum + c.qty, 0);
                 setFormData({ ...formData, colors: newColors, quantity: newTotal });
                 if (editingColorIndex === index) { setEditingColorIndex(null); setTempColor(''); setTempQty(1); }
             };
-
             const cancelEditColor = () => { setEditingColorIndex(null); setTempColor(''); setTempQty(1); };
-
             const handleOpenModal = (item = null) => {
-                if (item) {
-                    setEditingItem(item);
-                    setFormData({ name: item.name, category: item.category, quantity: item.quantity, unit: item.unit, imageUrl: item.imageUrl || '', notes: item.notes || '', colors: item.colors || [] });
-                } else {
-                    setEditingItem(null);
-                    setFormData({ name: '', category: filterCategory === 'all' ? 'flower' : filterCategory, quantity: 0, unit: '朵', imageUrl: '', notes: '', colors: [] });
-                }
+                if (item) { setEditingItem(item); setFormData({ name: item.name, category: item.category, quantity: item.quantity, unit: item.unit, imageUrl: item.imageUrl || '', notes: item.notes || '', colors: item.colors || [] }); } 
+                else { setEditingItem(null); setFormData({ name: '', category: filterCategory === 'all' ? 'flower' : filterCategory, quantity: 0, unit: '朵', imageUrl: '', notes: '', colors: [] }); }
                 setTempColor(''); setTempQty(1); setEditingColorIndex(null); setIsModalOpen(true);
             };
-
             const handleSubmit = async (e) => {
-                e.preventDefault();
-                if (!user) return;
-                setIsSaving(true);
+                e.preventDefault(); if (!user) return; setIsSaving(true);
                 const collectionRef = collection(db, 'lynn_garden_data');
                 let finalQty = formData.quantity;
                 if (formData.colors.length > 0) finalQty = formData.colors.reduce((sum, c) => sum + c.qty, 0);
                 if (formData.colors.length === 0 && formData.quantity > 0) finalQty = formData.quantity;
                 const dataToSave = { ...formData, quantity: finalQty };
                 try {
-                    if (editingItem) {
-                        const docRef = doc(db, 'lynn_garden_data', editingItem.id);
-                        await updateDoc(docRef, { ...dataToSave, updatedAt: serverTimestamp() });
-                    } else {
-                        await addDoc(collectionRef, { ...dataToSave, storeId: storeId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-                    }
+                    if (editingItem) { const docRef = doc(db, 'lynn_garden_data', editingItem.id); await updateDoc(docRef, { ...dataToSave, updatedAt: serverTimestamp() }); } 
+                    else { await addDoc(collectionRef, { ...dataToSave, storeId: storeId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }); }
                     setIsModalOpen(false);
                 } catch (err) { alert("儲存失敗: " + err.message); } finally { setIsSaving(false); }
             };
-
             const triggerDelete = (e, item) => { e.stopPropagation(); setItemToDelete(item); setIsDeleteModalOpen(true); };
             const confirmDelete = async () => {
                 if (!user || !itemToDelete) return;
-                try {
-                    await deleteDoc(doc(db, 'lynn_garden_data', itemToDelete.id));
-                    setIsDeleteModalOpen(false); setItemToDelete(null);
-                } catch (err) { console.error(err); }
+                try { await deleteDoc(doc(db, 'lynn_garden_data', itemToDelete.id)); setIsDeleteModalOpen(false); setItemToDelete(null); } catch (err) { console.error(err); }
             };
-
             const filteredItems = items.filter(item => {
                 const matchCategory = filterCategory === 'all' || item.category === filterCategory;
                 const matchSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || (item.notes && item.notes.toLowerCase().includes(searchTerm.toLowerCase()));
                 return matchCategory && matchSearch;
             });
 
-            // UI Render
             return (
                 <div className="min-h-screen pb-24 relative selection:bg-[#ffcdc9]">
                     <div className="sticky top-0 z-30 bg-[#f7f9f4]/95 backdrop-blur-md border-b border-[#e0e7d5] shadow-sm">
@@ -412,9 +328,7 @@
                                     </div>
                                     <div>
                                         <h1 className="text-xl font-bold text-[#2d4a3e] tracking-tight">{storeId}</h1>
-                                        <span className="text-[10px] text-[#8cb369] font-medium">
-                                            {connectionStatus === 'connected' ? '雲端已連線' : connectionStatus === 'error' ? '連線中斷' : '連線中...'}
-                                        </span>
+                                        <span className="text-[10px] text-[#8cb369] font-medium">{connectionStatus === 'connected' ? '🟢 雲端已連線' : connectionStatus === 'error' ? '🔴 連線中斷' : '🟠 連線中...'}</span>
                                     </div>
                                 </div>
                                 <div className="flex gap-2">
@@ -427,9 +341,7 @@
                                 <input type="text" placeholder="搜尋花材、顏色..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-[#e0e7d5] bg-white focus:border-[#8cb369] focus:outline-none"/>
                             </div>
                             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                                {CATEGORIES.map(cat => (
-                                    <button key={cat.id} onClick={() => setFilterCategory(cat.id)} className={`px-3 py-1.5 rounded-lg whitespace-nowrap text-xs font-bold border transition-colors shrink-0 ${filterCategory === cat.id ? 'bg-[#5c8065] text-white border-[#5c8065]' : 'bg-white text-[#8ba395] border-[#e0e7d5]'}`}>{cat.name}</button>
-                                ))}
+                                {CATEGORIES.map(cat => (<button key={cat.id} onClick={() => setFilterCategory(cat.id)} className={`px-3 py-1.5 rounded-lg whitespace-nowrap text-xs font-bold border transition-colors shrink-0 ${filterCategory === cat.id ? 'bg-[#5c8065] text-white border-[#5c8065]' : 'bg-white text-[#8ba395] border-[#e0e7d5]'}`}>{cat.name}</button>))}
                             </div>
                         </div>
                     </div>
@@ -450,10 +362,7 @@
                                                     item.colors.map((c, idx) => {
                                                         const dotColor = getColorHex(c.color); const isWhite = dotColor === '#ffffff';
                                                         return (
-                                                            <span key={idx} className="flex items-center text-[10px] bg-[#f7f9f4] pr-1.5 pl-1 py-0.5 rounded-full border border-[#e0e7d5]">
-                                                                <span className={`w-2.5 h-2.5 rounded-full mr-1 ${isWhite ? 'border border-gray-200' : ''}`} style={{ backgroundColor: dotColor }}></span>
-                                                                <span className="text-[#5c8065] font-bold">{c.qty}</span>
-                                                            </span>
+                                                            <span key={idx} className="flex items-center text-[10px] bg-[#f7f9f4] pr-1.5 pl-1 py-0.5 rounded-full border border-[#e0e7d5]"><span className={`w-2.5 h-2.5 rounded-full mr-1 ${isWhite ? 'border border-gray-200' : ''}`} style={{ backgroundColor: dotColor }}></span><span className="text-[#5c8065] font-bold">{c.qty}</span></span>
                                                         );
                                                     })
                                                 ) : (<span className="text-[10px] text-gray-300">單一規格</span>)}
