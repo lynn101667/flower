@@ -52,43 +52,31 @@
             Palette, AlertTriangle, RotateCcw, ChevronDown, ChevronUp, Wifi, WifiOff 
         } from 'lucide-react';
         
+        // 引入必要的 Auth 函式
         import { initializeApp } from 'firebase/app';
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+        import { getAuth, signInAnonymously, onAuthStateChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
         import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 
         // ==========================================
-        //  Firebase 設定邏輯 (自動判斷環境)
+        //  Lynn 的專屬 Firebase 設定
         // ==========================================
-        let firebaseConfig;
-        
-        // 1. 嘗試從預覽環境讀取設定 (讓您現在可以直接執行)
-        if (typeof __firebase_config !== 'undefined') {
-            try {
-                firebaseConfig = JSON.parse(__firebase_config);
-            } catch (e) {
-                console.warn("預覽環境設定讀取失敗，將使用手動設定");
-            }
-        }
-
-        // 2. 如果沒有預覽設定 (代表您在本地或 GitHub)，請在下方填入您的設定
-        if (!firebaseConfig) {
-            firebaseConfig = {
-                apiKey: "你的API_KEY",
-                authDomain: "你的PROJECT_ID.firebaseapp.com",
-                projectId: "你的PROJECT_ID",
-                storageBucket: "你的PROJECT_ID.firebasestorage.app",
-                messagingSenderId: "你的SENDER_ID",
-                appId: "你的APP_ID"
-            };
-        }
+        const firebaseConfig = {
+            apiKey: "AIzaSyA9v-WkbIkI0F5LuXa5sOfZaBtDkNZecg0",
+            authDomain: "lynn-garden-app.firebaseapp.com",
+            projectId: "lynn-garden-app",
+            storageBucket: "lynn-garden-app.firebasestorage.app",
+            messagingSenderId: "337104788892",
+            appId: "1:337104788892:web:a0c3aaaff90e0cd0917c59",
+            measurementId: "G-CQ00BN267J"
+        };
 
         // 初始化 Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         
-        // 取得 App ID (用於資料庫路徑)
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // 你的 App ID (用於資料庫路徑)
+        const appId = "lynn-garden-app";
 
         // --- Constants ---
         const CATEGORIES = [
@@ -224,23 +212,42 @@
             const [tempQty, setTempQty] = useState(1);
             const [editingColorIndex, setEditingColorIndex] = useState(null);
 
+            // Timeout check for connection
+            useEffect(() => {
+                let timeoutId;
+                if (connectionStatus === 'connecting') {
+                    timeoutId = setTimeout(() => {
+                        if (connectionStatus === 'connecting') {
+                            alert("⚠️ 連線似乎卡住了 (超過 10 秒)。\n\n這通常是因為 Firebase 資料庫尚未建立。\n\n請務必確認：\n1. 進入 Firebase Console -> Firestore Database\n2. 看到「Create database」按鈕了嗎？請點擊它！\n3. 選擇「Start in Test Mode」並啟用。\n\n如果已經建立，請檢查網路連線。");
+                            setConnectionStatus('error');
+                        }
+                    }, 10000);
+                }
+                return () => clearTimeout(timeoutId);
+            }, [connectionStatus]);
+
             // Auth Init
             useEffect(() => {
                 const initAuth = async () => {
                     try {
-                        // 優先使用環境 Token (解決 403 錯誤)
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await signInWithCustomToken(auth, __initial_auth_token);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
+                        await setPersistence(auth, browserLocalPersistence);
+                        await signInAnonymously(auth);
                     } catch (error) {
                         console.error("Auth Error:", error);
                         setConnectionStatus('error');
+                        if (error.code === 'auth/operation-not-allowed') {
+                            alert("⚠️ 請至 Firebase Console 開啟「匿名登入 (Anonymous)」功能。");
+                        }
                     }
                 };
                 initAuth();
-                const unsubscribe = onAuthStateChanged(auth, (currentUser) => setUser(currentUser));
+                
+                const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+                    setUser(currentUser);
+                    if (currentUser) {
+                        setConnectionStatus('connected');
+                    }
+                });
                 return () => unsubscribe();
             }, []);
 
@@ -250,10 +257,12 @@
                 setLoading(true);
                 setConnectionStatus('connecting');
                 
-                const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'florist_inventory_lynn_final');
+                // 改用簡單的根目錄路徑，減少權限問題
+                const collectionRef = collection(db, 'lynn_garden_data');
                 
                 const unsubscribeData = onSnapshot(collectionRef, (snapshot) => {
                     const allData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    // 為了安全，我們還是會過濾 storeId，雖然現在只有一個 store
                     const storeData = allData.filter(item => item.storeId === storeId);
                     storeData.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
                     setItems(storeData);
@@ -263,6 +272,13 @@
                     console.error("Data Error:", error);
                     setLoading(false);
                     setConnectionStatus('error');
+                    
+                    // --- 錯誤診斷與提示 ---
+                    if (error.code === 'permission-denied') {
+                        alert("⚠️ 權限不足 (Permission Denied)\n\n請到 Firebase Console -> Firestore Database -> Rules (規則)\n\n將規則改成：\nallow read, write: if true;");
+                    } else if (error.message.includes("Cloud Firestore API") || error.code === 'unavailable') {
+                        alert("⚠️ 資料庫尚未啟用\n\n請到 Firebase Console -> Firestore Database\n點擊「Create database」，並選擇「Start in Test mode (測試模式)」");
+                    }
                 });
                 return () => unsubscribeData();
             }, [user]);
@@ -350,27 +366,27 @@
                 e.preventDefault();
                 if (!user) return;
                 setIsSaving(true);
-                const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'florist_inventory_lynn_final');
+                const collectionRef = collection(db, 'lynn_garden_data');
                 let finalQty = formData.quantity;
                 if (formData.colors.length > 0) finalQty = formData.colors.reduce((sum, c) => sum + c.qty, 0);
                 if (formData.colors.length === 0 && formData.quantity > 0) finalQty = formData.quantity;
                 const dataToSave = { ...formData, quantity: finalQty };
                 try {
                     if (editingItem) {
-                        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'florist_inventory_lynn_final', editingItem.id);
+                        const docRef = doc(db, 'lynn_garden_data', editingItem.id);
                         await updateDoc(docRef, { ...dataToSave, updatedAt: serverTimestamp() });
                     } else {
                         await addDoc(collectionRef, { ...dataToSave, storeId: storeId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
                     }
                     setIsModalOpen(false);
-                } catch (err) { alert("儲存失敗"); } finally { setIsSaving(false); }
+                } catch (err) { alert("儲存失敗: " + err.message); } finally { setIsSaving(false); }
             };
 
             const triggerDelete = (e, item) => { e.stopPropagation(); setItemToDelete(item); setIsDeleteModalOpen(true); };
             const confirmDelete = async () => {
                 if (!user || !itemToDelete) return;
                 try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'florist_inventory_lynn_final', itemToDelete.id));
+                    await deleteDoc(doc(db, 'lynn_garden_data', itemToDelete.id));
                     setIsDeleteModalOpen(false); setItemToDelete(null);
                 } catch (err) { console.error(err); }
             };
@@ -396,12 +412,15 @@
                                     </div>
                                     <div>
                                         <h1 className="text-xl font-bold text-[#2d4a3e] tracking-tight">{storeId}</h1>
-                                        <span className="text-[10px] text-[#8cb369] font-medium">{connectionStatus === 'connected' ? '雲端同步中' : connectionStatus === 'error' ? '離線' : '連線中...'}</span>
+                                        <span className="text-[10px] text-[#8cb369] font-medium">
+                                            {connectionStatus === 'connected' ? '雲端已連線' : connectionStatus === 'error' ? '連線中斷' : '連線中...'}
+                                        </span>
                                     </div>
                                 </div>
-                                <button onClick={triggerExport} className="flex items-center gap-1 px-3 py-1.5 bg-white border border-[#8cb369] text-[#5c8065] text-xs font-bold rounded-xl active:bg-[#f0f4ec] transition-colors shadow-sm">
-                                    <FileSpreadsheet size={14} /> 匯出
-                                </button>
+                                <div className="flex gap-2">
+                                    <button onClick={() => window.location.reload()} className="p-2 bg-white border border-[#8cb369] text-[#5c8065] rounded-full active:bg-[#f0f4ec] shadow-sm" title="重新連線"><RefreshCw size={14}/></button>
+                                    <button onClick={triggerExport} className="flex items-center gap-1 px-3 py-1.5 bg-white border border-[#8cb369] text-[#5c8065] text-xs font-bold rounded-xl active:bg-[#f0f4ec] transition-colors shadow-sm"><FileSpreadsheet size={14} /> 匯出</button>
+                                </div>
                             </div>
                             <div className="relative mb-3">
                                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#a5c2ad]" size={16} />
@@ -429,8 +448,7 @@
                                             <div className="flex flex-wrap gap-1.5 mt-1 mb-1">
                                                 {item.colors && item.colors.length > 0 ? (
                                                     item.colors.map((c, idx) => {
-                                                        const dotColor = getColorHex(c.color);
-                                                        const isWhite = dotColor === '#ffffff';
+                                                        const dotColor = getColorHex(c.color); const isWhite = dotColor === '#ffffff';
                                                         return (
                                                             <span key={idx} className="flex items-center text-[10px] bg-[#f7f9f4] pr-1.5 pl-1 py-0.5 rounded-full border border-[#e0e7d5]">
                                                                 <span className={`w-2.5 h-2.5 rounded-full mr-1 ${isWhite ? 'border border-gray-200' : ''}`} style={{ backgroundColor: dotColor }}></span>
@@ -470,18 +488,12 @@
                                         <button onClick={() => setIsExportModalOpen(false)} className="w-full py-2.5 bg-[#2d4a3e] text-white rounded-xl font-bold text-sm">關閉</button>
                                     </>
                                 ) : exportStatus === 'processing' ? (
-                                    <>
-                                        <div className="w-12 h-12 border-4 border-[#e0e7d5] border-t-[#5c8065] rounded-full animate-spin mx-auto mb-4"></div>
-                                        <h3 className="text-lg font-bold text-[#2d4a3e] mb-2">處理中...</h3>
-                                    </>
+                                    <><div className="w-12 h-12 border-4 border-[#e0e7d5] border-t-[#5c8065] rounded-full animate-spin mx-auto mb-4"></div><h3 className="text-lg font-bold text-[#2d4a3e] mb-2">處理中...</h3></>
                                 ) : (
                                     <>
                                         <div className="w-12 h-12 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-4"><Download size={24} /></div>
                                         <h3 className="text-lg font-bold text-[#2d4a3e] mb-2">匯出 Excel？</h3>
-                                        <div className="flex gap-3 mt-6">
-                                            <button onClick={() => setIsExportModalOpen(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm">取消</button>
-                                            <button onClick={confirmExport} className="flex-1 py-2.5 bg-[#5c8065] text-white rounded-xl font-bold text-sm shadow-md">確認</button>
-                                        </div>
+                                        <div className="flex gap-3 mt-6"><button onClick={() => setIsExportModalOpen(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm">取消</button><button onClick={confirmExport} className="flex-1 py-2.5 bg-[#5c8065] text-white rounded-xl font-bold text-sm shadow-md">確認</button></div>
                                     </>
                                 )}
                             </div>
@@ -494,10 +506,7 @@
                                 <div className="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><AlertTriangle size={24} /></div>
                                 <h3 className="text-lg font-bold text-[#2d4a3e] mb-2">確定刪除？</h3>
                                 <p className="text-sm text-[#8ba395] mb-6">刪除 <span className="font-bold text-[#d65f41]">{itemToDelete.name}</span> 後無法復原。</p>
-                                <div className="flex gap-3">
-                                    <button onClick={() => setIsDeleteModalOpen(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm">保留</button>
-                                    <button onClick={confirmDelete} className="flex-1 py-2.5 bg-[#ff6b6b] text-white rounded-xl font-bold text-sm shadow-md">刪除</button>
-                                </div>
+                                <div className="flex gap-3"><button onClick={() => setIsDeleteModalOpen(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm">保留</button><button onClick={confirmDelete} className="flex-1 py-2.5 bg-[#ff6b6b] text-white rounded-xl font-bold text-sm shadow-md">刪除</button></div>
                             </div>
                         </div>
                     )}
@@ -527,10 +536,7 @@
                                                 <input type="text" placeholder="顏色" value={tempColor} onChange={(e) => setTempColor(e.target.value)} className="w-1/2 p-2 rounded-xl bg-white border border-[#e0e7d5] outline-none text-sm text-[#2d4a3e] placeholder-gray-300"/>
                                                 <input type="number" placeholder="量" value={tempQty} onChange={(e) => setTempQty(parseInt(e.target.value) || 0)} className="flex-1 min-w-0 p-2 text-center rounded-xl bg-white border border-[#e0e7d5] outline-none text-sm font-bold text-[#2d4a3e]"/>
                                                 {editingColorIndex !== null ? (
-                                                    <>
-                                                        <button type="button" onClick={cancelEditColor} className="p-2 bg-gray-200 text-gray-500 rounded-xl hover:bg-gray-300"><RotateCcw size={18} /></button>
-                                                        <button type="button" onClick={addOrUpdateColor} className="p-2 bg-[#5c8065] text-white rounded-xl shadow-sm hover:bg-[#2d4a3e]"><Check size={18} /></button>
-                                                    </>
+                                                    <><button type="button" onClick={cancelEditColor} className="p-2 bg-gray-200 text-gray-500 rounded-xl hover:bg-gray-300"><RotateCcw size={18} /></button><button type="button" onClick={addOrUpdateColor} className="p-2 bg-[#5c8065] text-white rounded-xl shadow-sm hover:bg-[#2d4a3e]"><Check size={18} /></button></>
                                                 ) : (
                                                     <button type="button" onClick={addOrUpdateColor} className="p-2 bg-[#8cb369] text-white rounded-xl shadow-sm hover:bg-[#5c8065]"><Plus size={18} /></button>
                                                 )}
